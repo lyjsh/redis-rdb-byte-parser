@@ -3,7 +3,11 @@
 #include <cstdlib>
 #include <cstdint>
 #include <string>
+#include <cstring>
 #include  "rdb.h"
+#include  "ziplist.h"
+#include "endianconv.h"
+#include "assert.h"
 using namespace std;
 
 struct Buffer {
@@ -149,6 +153,16 @@ void loadDb(Buffer* buf);
 
 void parseZiplist(uint8_t* ziplist);
 
+void parseZiplist(Buffer* buf);
+
+void zipEntry(unsigned char *p, zlentry *e) {
+
+    ZIP_DECODE_PREVLEN(p, e->prevrawlensize, e->prevrawlen);
+    ZIP_DECODE_LENGTH(p + e->prevrawlensize, e->encoding, e->lensize, e->len);
+    e->headersize = e->prevrawlensize + e->lensize;
+    e->p = p;
+}
+
 int main(int argc, char* argv[]) {
     // ====================== 修复点1：参数必须是 2 个
     if (argc != 2) {
@@ -191,6 +205,14 @@ int main(int argc, char* argv[]) {
     }
     fclose(rdbfile);
     return 0;
+}
+
+// ===================== 工具函数：小端字节序转换（Redis 用小端） =====================
+uint32_t read_le32(const uint8_t* p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+uint16_t read_le16(const uint8_t* p) {
+    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
 }
 
 void rdbLoadInfoAuxFields(Buffer* buff) {
@@ -255,6 +277,24 @@ void parseString(Buffer* buf) {
     string key = read_string(buf);
     string value = read_string(buf);
     cout << "[string] " << "key:" << key << " value:" << value << " ";
+}
+
+void parseZiplist(Buffer* buf){
+    size_t len = rdbLoadLen(buf);
+    uint8_t* data = new uint8_t[len];
+    buffer_read_bytes(buf,data,len);
+    const uint8_t* p = data;
+    uint32_t zlbytes = read_le32(p);
+    p+=4;
+    uint32_t zltail_offset = read_le32(p);
+    p+=4;
+    uint16_t zllen = read_le16(p);
+    p+=2;
+    int entrySize = 0;
+    while (*p!=ZIP_END){
+        unsigned int prevlensize, prevlen = 0;
+        ZIP_DECODE_PREVLEN(p, prevlensize, prevlen);
+    }
 }
 
 void parseZiplist(uint8_t* ziplist) {
