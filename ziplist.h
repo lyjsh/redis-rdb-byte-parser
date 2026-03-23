@@ -158,6 +158,7 @@ unsigned int zipIntSize(unsigned char encoding) {
     return 0;
 }
 
+
 #define ZIPLIST_ENTRY_ZERO(zle) { \
     (zle)->prevrawlensize = (zle)->prevrawlen = 0; \
     (zle)->lensize = (zle)->len = (zle)->headersize = 0; \
