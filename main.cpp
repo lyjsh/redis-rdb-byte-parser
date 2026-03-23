@@ -151,6 +151,8 @@ void rdbLoadInfoAuxFields(Buffer* buff);
 
 void loadDb(Buffer* buf);
 
+void parseZiplist(uint8_t* ziplist);
+
 void parseZiplist(Buffer* buf);
 
 void zipEntry(unsigned char *p, zlentry *e) {
@@ -252,6 +254,8 @@ void rdbLoadInfoAuxFields(Buffer* buff) {
 
 void parseString(Buffer* buf);
 
+void parseQuicklist(Buffer* buf);
+
 void loadDb(Buffer* buf) {
     uint64_t dbNum = rdbLoadLen(buf);
     cout << "select db " << dbNum << endl;
@@ -277,6 +281,8 @@ void loadDb(Buffer* buf) {
         }
         else if (type == RDB_TYPE_STRING) {
             parseString(buf);
+        }else if (type == RDB_TYPE_LIST_QUICKLIST) {
+            parseQuicklist(buf);
         }
         else if (type == RDB_OPCODE_EOF) {
             break;
@@ -334,4 +340,31 @@ void parseZiplist(Buffer* buf){
 
     }
     delete[] data;
+}
+
+void parseZiplist(uint8_t* ziplist) {
+
+}
+
+void parseQuicklist(Buffer* buf) {
+    string key = read_string(buf);
+    uint64_t nodeSize = rdbLoadLen(buf);
+    cout<<"quicklist: "<<key<<" quicklist_size: "<<nodeSize<<endl;
+    cout<<"quicklist_nodes: ";
+    while (nodeSize>0) {
+        unsigned char compressed = buffer_read_byte(buf);
+        if (compressed==((RDB_ENCVAL<<6)|RDB_ENC_LZF)) {
+            size_t compress_len = rdbLoadLen(buf);
+            size_t original_len = rdbLoadLen(buf);
+            uint8_t* data = new uint8_t[compress_len];
+            buffer_read_bytes(buf,data,compress_len);
+        }else {
+            uint64_t len = rdbLoadLen(buf);
+            uint8_t* ziplist = new uint8_t[len];
+            buffer_read_bytes(buf,ziplist,len);
+            parseZiplist(ziplist);
+        }
+        nodeSize--;
+    }
+
 }
