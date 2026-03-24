@@ -35,6 +35,11 @@ uint8_t buffer_read_byte(Buffer* b) {
     return b->buf[b->pos++];
 }
 
+unsigned char buffer_peek_byte(Buffer *buf) {
+    if (buf->pos >= buf->size) return 0;
+    return buf->buf[buf->pos];
+}
+
 void buffer_read_bytes(Buffer* b, uint8_t* out, int len) {
     for (int i = 0; i < len; i++) {
         out[i] = buffer_read_byte(b);
@@ -338,10 +343,13 @@ void parseZiplist(Buffer* buf){
             unsigned char* entryData = new unsigned char[entry_len];
             memcpy(entryData,p,entry_len);
             p+=entry_len;
-            cout<<"entryData:"<<entryData<<endl;
+            cout<<"entryData:";
+            cout.write((char*)entryData,entry_len);
+            cout<<endl;
             delete[] entryData;
         }else {
-            zipLoadInteger((unsigned char*)p,encoding);
+            int64_t entryData =  zipLoadInteger((unsigned char*)p,encoding);
+            cout<<"entryData:"<<entryData<<endl;
             p+=lensize;
         }
         entrySize++;
@@ -356,7 +364,7 @@ void parseQuicklist(Buffer* buf) {
     cout<<"quicklist: "<<key<<" quicklist_size: "<<nodeSize<<endl;
     cout<<"quicklist_nodes: ";
     while (nodeSize>0) {
-        unsigned char compressed = buffer_read_byte(buf);
+        unsigned char compressed = buffer_peek_byte(buf);
         if (compressed==((RDB_ENCVAL<<6)|RDB_ENC_LZF)) {
             size_t compress_len = rdbLoadLen(buf);
             size_t original_len = rdbLoadLen(buf);
