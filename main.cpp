@@ -151,8 +151,6 @@ void rdbLoadInfoAuxFields(Buffer* buff);
 
 void loadDb(Buffer* buf);
 
-void parseZiplist(uint8_t* ziplist);
-
 void parseZiplist(Buffer* buf);
 
 void zipEntry(unsigned char *p, zlentry *e) {
@@ -256,6 +254,8 @@ void parseString(Buffer* buf);
 
 void parseQuicklist(Buffer* buf);
 
+void parseHashZiplist(Buffer* buf);
+
 void loadDb(Buffer* buf) {
     uint64_t dbNum = rdbLoadLen(buf);
     cout << "select db " << dbNum << endl;
@@ -281,6 +281,8 @@ void loadDb(Buffer* buf) {
         }
         else if (type == RDB_TYPE_STRING) {
             parseString(buf);
+        }else if (type == RDB_TYPE_HASH_ZIPLIST){
+            parseHashZiplist(buf);
         }else if (type == RDB_TYPE_LIST_QUICKLIST) {
             parseQuicklist(buf);
         }
@@ -321,6 +323,9 @@ void parseZiplist(Buffer* buf){
     p+=4;
     uint16_t zllen = read_le16(p);
     p+=2;
+    cout<<"zlbytes:"<<zlbytes<<endl;
+    cout<<"zltail_offset:"<<zltail_offset<<endl;
+    cout<<"zllen:"<<zllen<<endl;
     int entrySize = 0;
     while (*p!=ZIP_END){
         unsigned int prevlensize, prevlen = 0;
@@ -329,21 +334,20 @@ void parseZiplist(Buffer* buf){
         unsigned int encoding, lensize, entry_len;
         ZIP_DECODE_LENGTH(p,encoding, lensize, entry_len);
         if (ZIP_IS_STR(encoding)) {
+            p+=lensize;
             unsigned char* entryData = new unsigned char[entry_len];
             memcpy(entryData,p,entry_len);
-            p+=lensize+entry_len;
+            p+=entry_len;
+            cout<<"entryData:"<<entryData<<endl;
             delete[] entryData;
         }else {
             zipLoadInteger((unsigned char*)p,encoding);
             p+=lensize;
         }
+        entrySize++;
 
     }
     delete[] data;
-}
-
-void parseZiplist(uint8_t* ziplist) {
-
 }
 
 void parseQuicklist(Buffer* buf) {
@@ -359,12 +363,16 @@ void parseQuicklist(Buffer* buf) {
             uint8_t* data = new uint8_t[compress_len];
             buffer_read_bytes(buf,data,compress_len);
         }else {
-            uint64_t len = rdbLoadLen(buf);
-            uint8_t* ziplist = new uint8_t[len];
-            buffer_read_bytes(buf,ziplist,len);
-            parseZiplist(ziplist);
+            parseZiplist(buf);
         }
         nodeSize--;
     }
 
+}
+
+void parseHashZiplist(Buffer* buf){
+    string key = read_string(buf);
+    cout<<"[hash] " << "key:" << key << " ";
+    cout<<"[hash] " << "value:";
+    parseZiplist(buf);
 }
