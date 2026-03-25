@@ -8,6 +8,7 @@
 #include  "ziplist.h"
 #include "endianconv.h"
 #include "assert.h"
+#include  "lzf.h"
 using namespace std;
 
 struct Buffer {
@@ -371,6 +372,9 @@ void parseQuicklist(Buffer* buf) {
             size_t original_len = rdbLoadLen(buf);
             uint8_t* data = new uint8_t[compress_len];
             buffer_read_bytes(buf,data,compress_len);
+            uint8_t* uncompress = new uint8_t[original_len];
+            lzf_decompress(data,compress_len,uncompress,original_len);
+
         }else {
             parseZiplist(buf);
         }

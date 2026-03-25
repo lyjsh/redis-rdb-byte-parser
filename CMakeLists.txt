@@ -4,4 +4,4 @@ project(redis-rdb-byte-parser)
 set(CMAKE_CXX_STANDARD 17)
 
 add_executable(redis-rdb-byte-parser main.cpp
-        ziplist.h)
+         lzf_d.c)
