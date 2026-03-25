@@ -366,6 +366,7 @@ void parseQuicklist(Buffer* buf) {
     while (nodeSize>0) {
         unsigned char compressed = buffer_peek_byte(buf);
         if (compressed==((RDB_ENCVAL<<6)|RDB_ENC_LZF)) {
+            buffer_read_chars(buf,&compressed,1);
             size_t compress_len = rdbLoadLen(buf);
             size_t original_len = rdbLoadLen(buf);
             uint8_t* data = new uint8_t[compress_len];
