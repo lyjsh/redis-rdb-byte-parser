@@ -40,6 +40,14 @@ unsigned char buffer_peek_byte(Buffer *buf) {
     return buf->buf[buf->pos];
 }
 
+bool buffer_peek_bytes(Buffer *buf,uint8_t* out,int len) {
+    if (buf->pos >= buf->size-len) return false;
+    for (int i = 0; i < len; i++) {
+        out[i] = buf->buf[buf->pos++];
+    }
+    return true;
+}
+
 void buffer_read_bytes(Buffer* b, uint8_t* out, int len) {
     for (int i = 0; i < len; i++) {
         out[i] = buffer_read_byte(b);
@@ -318,9 +326,12 @@ void parseString(Buffer* buf) {
 }
 
 void parseZiplist(Buffer* buf){
-    size_t len = rdbLoadLen(buf);
-    uint8_t* data = new uint8_t[len];
-    buffer_read_bytes(buf,data,len);
+    uint8_t* zllenout = new uint8_t[4];
+    buffer_peek_bytes(buf,zllenout,4);
+    uint32_t realen = read_le32(zllenout);
+    delete[] zllenout;
+    uint8_t* data = new uint8_t[realen];
+    buffer_read_bytes(buf,data,realen);
     const uint8_t* p = data;
     uint32_t zlbytes = read_le32(p);
     p+=4;
@@ -383,5 +394,7 @@ void parseHashZiplist(Buffer* buf){
     string key = read_string(buf);
     cout<<"[hash] " << "key:" << key << " ";
     cout<<"[hash] " << "value:";
+    uint64_t zllen = rdbLoadLen(buf);
+    cout<<"zltotallen:"<<zllen<<endl;
     parseZiplist(buf);
 }
