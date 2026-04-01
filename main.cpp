@@ -165,7 +165,7 @@ void rdbLoadInfoAuxFields(Buffer* buff);
 
 void loadDb(Buffer* buf);
 
-void parseZiplist(Buffer* buf);
+void parseZiplist(uint8_t* ziplist);
 
 void zipEntry(unsigned char *p, zlentry *e) {
 
@@ -326,14 +326,8 @@ void parseString(Buffer* buf) {
     cout << "[string] " << "key:" << key << " value:" << value << " ";
 }
 
-void parseZiplist(Buffer* buf){
-    uint8_t* zllenout = new uint8_t[4];
-    buffer_peek_bytes(buf,zllenout,4);
-    uint32_t realen = read_le32(zllenout);
-    delete[] zllenout;
-    uint8_t* data = new uint8_t[realen];
-    buffer_read_bytes(buf,data,realen);
-    const uint8_t* p = data;
+void parseZiplist(uint8_t* ziplist){
+    const uint8_t* p = ziplist;
     uint32_t zlbytes = read_le32(p);
     p+=4;
     uint32_t zltail_offset = read_le32(p);
@@ -367,7 +361,6 @@ void parseZiplist(Buffer* buf){
         entrySize++;
 
     }
-    delete[] data;
 }
 
 void parseQuicklist(Buffer* buf) {
@@ -387,7 +380,14 @@ void parseQuicklist(Buffer* buf) {
             lzf_decompress(data,compress_len,uncompress,original_len);
 
         }else {
-            parseZiplist(buf);
+            uint8_t* out = new uint8_t[4];
+            buffer_peek_bytes(buf,out,4);
+            uint32_t zllen = read_le32(out);
+            delete[] out;
+            uint8_t* ziplist = new uint8_t[zllen];
+            buffer_read_bytes(buf,ziplist,zllen);
+            parseZiplist(ziplist);
+            delete[] ziplist;
         }
         nodeSize--;
     }
@@ -400,5 +400,8 @@ void parseHashZiplist(Buffer* buf){
     cout<<"[hash] " << "value:";
     uint64_t zllen = rdbLoadLen(buf);
     cout<<"zltotallen:"<<zllen<<endl;
-    parseZiplist(buf);
+    uint8_t* zllenout = new uint8_t[zllen];
+    buffer_read_bytes(buf,zllenout,zllen);
+    parseZiplist(zllenout);
+    delete[] zllenout;
 }
