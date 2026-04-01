@@ -105,44 +105,65 @@ string read_string(Buffer* buf) {
     }
 }
 
-// 读取 Redis 长度编码（对应 rdbSaveLen）
-// 返回：读到的长度
-uint64_t rdbLoadLen(Buffer* buf) {
-    uint8_t b = buffer_read_byte(buf);
+// 32位 大端 → 主机序（替代 ntohl）
+static inline uint32_t swap32(uint32_t val) {
+    return ((val >> 24) & 0xFF) |
+           ((val >>  8) & 0xFF00) |
+           ((val <<  8) & 0xFF0000) |
+           ((val << 24) & 0xFF000000);
+}
 
-    // 最高2位表示类型
+//64位 大端 → 主机序（替代 ntohll / ntohu64）
+static inline uint64_t swap64(uint64_t val) {
+    return ((val & 0x00000000000000FFULL) << 56) |
+           ((val & 0x000000000000FF00ULL) << 40) |
+           ((val & 0x0000000000FF0000ULL) << 24) |
+           ((val & 0x00000000FF000000ULL) << 8)  |
+           ((val & 0x000000FF00000000ULL) >> 8)  |
+           ((val & 0x0000FF0000000000ULL) >> 24) |
+           ((val & 0x00FF000000000000ULL) >> 40) |
+           ((val & 0xFF00000000000000ULL) >> 56);
+}
+
+
+uint64_t rdbLoadLen(Buffer* buf, int *isencoded) {
+    uint8_t b = buffer_read_byte(buf);
     int type = (b >> 6) & 0x03;
 
-    uint64_t len;
+    if (isencoded) *isencoded = 0;
 
-    if (type == 0) {
-        // 00xxxxxx  6位长度
-        len = b & 0x3F;
-    }
-    else if (type == 1) {
-        // 01xxxxxx  14位长度
-        len = (b & 0x3F) << 8;
+    if (type == 3) { // RDB_ENCVAL
+        if (isencoded) *isencoded = 1;
+        return b & 0x3F;
+    } else if (type == 0) { // 6bit
+        return b & 0x3F;
+    } else if (type == 1) { // 14bit
+        uint64_t len = ((uint64_t)(b & 0x3F)) << 8;
         len |= buffer_read_byte(buf);
+        return len;
+    } else { // type == 2
+        if (b == 0x80) { // 32bit len
+            uint32_t len = 0;
+            len |= (uint32_t)buffer_read_byte(buf) << 24;
+            len |= (uint32_t)buffer_read_byte(buf) << 16;
+            len |= (uint32_t)buffer_read_byte(buf) << 8;
+            len |= (uint32_t)buffer_read_byte(buf);
+            return len;
+        } else if (b == 0x81) { // 64bit len
+            uint64_t len = 0;
+            len |= (uint64_t)buffer_read_byte(buf) << 56;
+            len |= (uint64_t)buffer_read_byte(buf) << 48;
+            len |= (uint64_t)buffer_read_byte(buf) << 40;
+            len |= (uint64_t)buffer_read_byte(buf) << 32;
+            len |= (uint64_t)buffer_read_byte(buf) << 24;
+            len |= (uint64_t)buffer_read_byte(buf) << 16;
+            len |= (uint64_t)buffer_read_byte(buf) << 8;
+            len |= (uint64_t)buffer_read_byte(buf);
+            return len;
+        } else {
+            return UINT64_MAX;
+        }
     }
-    else if (type == 2) {
-        // 10000000  32位长度
-        len = buffer_read_u32(buf);
-    }
-    else if (type == 3) {
-        // 11000000  64位长度
-        uint64_t biglen = 0;
-        biglen |= (uint64_t)buffer_read_byte(buf) << 56;
-        biglen |= (uint64_t)buffer_read_byte(buf) << 48;
-        biglen |= (uint64_t)buffer_read_byte(buf) << 40;
-        biglen |= (uint64_t)buffer_read_byte(buf) << 32;
-        biglen |= (uint64_t)buffer_read_byte(buf) << 24;
-        biglen |= (uint64_t)buffer_read_byte(buf) << 16;
-        biglen |= (uint64_t)buffer_read_byte(buf) << 8;
-        biglen |= (uint64_t)buffer_read_byte(buf);
-        len = biglen;
-    }
-
-    return len;
 }
 
 uint64_t rdbLoadMillisecondTime(Buffer* buf) {
@@ -271,12 +292,12 @@ void parseQuicklist(Buffer* buf);
 void parseHashZiplist(Buffer* buf);
 
 void loadDb(Buffer* buf) {
-    uint64_t dbNum = rdbLoadLen(buf);
+    uint64_t dbNum = rdbLoadLen(buf,nullptr);
     cout << "select db " << dbNum << endl;
     uint8_t op = buffer_read_byte(buf);
     uint64_t db_size, expires_size;
-    db_size = rdbLoadLen(buf);
-    expires_size = rdbLoadLen(buf);
+    db_size = rdbLoadLen(buf,nullptr);
+    expires_size = rdbLoadLen(buf,nullptr);
     cout << "RDB_OPCODE " << (int)op << " db_size " << db_size << " expires_size " << expires_size << endl;
     uint8_t type;
     while (true) {
@@ -288,7 +309,7 @@ void loadDb(Buffer* buf) {
             expiretime = rdbLoadMillisecondTime(buf);
         }
         else if (type == RDB_OPCODE_IDLE) {
-            idletime = rdbLoadLen(buf) * 1000;
+            idletime = rdbLoadLen(buf,nullptr) * 1000;
         }
         else if (type == RDB_OPCODE_FREQ) {
             lfu_freq = rdbLoadLFUFreq(buf);
@@ -365,15 +386,15 @@ void parseZiplist(uint8_t* ziplist){
 
 void parseQuicklist(Buffer* buf) {
     string key = read_string(buf);
-    uint64_t nodeSize = rdbLoadLen(buf);
+    uint64_t nodeSize = rdbLoadLen(buf,nullptr);
     cout<<"quicklist: "<<key<<" quicklist_size: "<<nodeSize<<endl;
     cout<<"quicklist_nodes: ";
     while (nodeSize>0) {
         unsigned char compressed = buffer_peek_byte(buf);
         if (compressed==((RDB_ENCVAL<<6)|RDB_ENC_LZF)) {
             buffer_read_chars(buf,&compressed,1);
-            size_t compress_len = rdbLoadLen(buf);
-            size_t original_len = rdbLoadLen(buf);
+            size_t compress_len = rdbLoadLen(buf,nullptr);
+            size_t original_len = rdbLoadLen(buf,nullptr);
             uint8_t* data = new uint8_t[compress_len];
             buffer_read_bytes(buf,data,compress_len);
             uint8_t* uncompress = new uint8_t[original_len];
@@ -398,7 +419,7 @@ void parseHashZiplist(Buffer* buf){
     string key = read_string(buf);
     cout<<"[hash] " << "key:" << key << " ";
     cout<<"[hash] " << "value:";
-    uint64_t zllen = rdbLoadLen(buf);
+    uint64_t zllen = rdbLoadLen(buf,nullptr);
     cout<<"zltotallen:"<<zllen<<endl;
     uint8_t* zllenout = new uint8_t[zllen];
     buffer_read_bytes(buf,zllenout,zllen);
